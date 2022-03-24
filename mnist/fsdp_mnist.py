@@ -79,6 +79,8 @@ def train(args, model, rank, world_size, train_loader, optimizer, epoch, sampler
        optimizer.step()
        ddp_loss[0] += loss.item()
        ddp_loss[1] += len(data)
+       if prof:
+           prof.step()
 
    dist.reduce(ddp_loss, 0, op=dist.ReduceOp.SUM)
    if rank == 0:
@@ -165,13 +167,13 @@ def fsdp_main(rank, world_size, args):
         with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,
                                                 torch.profiler.ProfilerActivity.CUDA], 
                                     schedule=torch.profiler.schedule(wait=1, warmup=2, active=3, repeat=1),
-                                    on_trace_ready=torch.profiler.tensorboard_trace_handler('traces/fsdp_profiles'),
+                                    on_trace_ready=torch.profiler.tensorboard_trace_handler('fsdp_mnist/profile_traces'),
                                     profile_memory=True,
                                     with_stack=False,
                                     record_shapes=True) as prof:
             
             if rank==0:
-            print("\n--> Profiling active...")
+                print("\n--> Profiling active...")
         
             for epoch in range(1, args.epochs + 1):
                 train(args, model, rank, world_size, train_loader, optimizer, epoch, sampler=sampler1, prof=prof)
@@ -179,7 +181,9 @@ def fsdp_main(rank, world_size, args):
                 scheduler.step()
 
    else:
-   
+      if rank==0:
+          print("\n--> * Not * profiling\n")
+
       for epoch in range(1, args.epochs + 1):
           train(args, model, rank, world_size, train_loader, optimizer, epoch, sampler=sampler1)
           test(model, rank, world_size, test_loader)
