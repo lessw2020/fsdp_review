@@ -4,11 +4,11 @@ Some eval and profile routines for fsdp
 ## /mnist holds fsdp_mnist.py  
 This runs an fsdp CNN model for a default of 2 epochs to provide a review framework for FSDP.
 
-Usage:</br>
+#### Usage:</br>
 ~~~
 python fsdp_mnist.py  <optional flags> 
 ~~~
-### Flags:
+#### Flags:
 -- use_offload = Activates cpu_offload </br>
 -- profile = Run PyTorch profile tracing </br>
 -- save-model = Save model (only working on nightlies) </br>
