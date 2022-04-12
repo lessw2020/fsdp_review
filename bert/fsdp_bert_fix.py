@@ -150,12 +150,10 @@ def read_imdb_split(split_dir):
 
 
 def ddp_main(rank, world_size, args):
-
-<<<<<<< HEAD
+    
+    # show c++ stack trace in the event of python error
     os.environ["TORCH_SHOW_CPP_STACKTRACES"] = str(1)
-=======
-    os.environ["TORCH_CPP_SHOW_STACKTRACES"] = str(1)
->>>>>>> 00cad248f2a8fb6fd0daadd9980b6a7b5d3af635
+    
 
     model_name = "bert-base-uncased"
 
