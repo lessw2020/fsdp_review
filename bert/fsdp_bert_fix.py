@@ -227,6 +227,8 @@ def ddp_main(rank, world_size, args):
         backward_prefetch: Optional[BackwardPrefetch] = None,
         mixed_precision: Optional[MixedPrecision] = None
     ):"""
+        # Show full C++ stacktraces when a Python error originating from C++ is raised.
+        os.environ["TORCH_SHOW_CPP_STACKTRACES"] = "1"
 
     model = FSDP(
         model,
