@@ -20,10 +20,17 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 
 # from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.fully_sharded_data_parallel import (
+# from torch.distributed.fsdp.fully_sharded_data_parallel import (
+##    FullyShardedDataParallel as FSDP,
+#    CPUOffload,
+#    BackwardPrefetch,
+# )
+from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
     CPUOffload,
+    MixedPrecision,
     BackwardPrefetch,
+    ShardingStrategy,
 )
 from torch.distributed.fsdp.wrap import (
     default_auto_wrap_policy,
@@ -35,6 +42,9 @@ from torch.utils.data import DataLoader
 from pathlib import Path
 
 from sklearn.model_selection import train_test_split
+import os
+
+# os.environ["TORCH_CPP_SHOW_STACKTRACES="] = "1"
 
 
 def setup(rank, world_size):
@@ -141,6 +151,8 @@ def read_imdb_split(split_dir):
 
 def ddp_main(rank, world_size, args):
 
+    os.environ["TORCH_CPP_SHOW_STACKTRACES"] = str(1)
+
     model_name = "bert-base-uncased"
 
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
@@ -181,7 +193,7 @@ def ddp_main(rank, world_size, args):
     train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
     test_loader = torch.utils.data.DataLoader(val_dataset, **test_kwargs)
 
-    bert_wrap_policy = functools.partial(default_auto_wrap_policy, min_num_params=10000)
+    bert_wrap_policy = functools.partial(default_auto_wrap_policy, min_num_params=50000)
 
     torch.cuda.set_device(rank)
 
@@ -191,10 +203,41 @@ def ddp_main(rank, world_size, args):
     init_start_event.record()
 
     # model = model.to(rank)
+    fpSixteen = MixedPrecision(
+        # param_dtype=torch.float16,
+        # Gradient communication precision.
+        reduce_dtype=torch.float16,
+        # Buffer precision.
+        buffer_dtype=torch.float16,
+    )
 
-    model = FSDP(model, auto_wrap_policy=bert_wrap_policy).to(rank)
+    bfSixteen = MixedPrecision(
+        param_dtype=torch.bfloat16,
+        # Gradient communication precision.
+        reduce_dtype=torch.bfloat16,
+        # Buffer precision.
+        buffer_dtype=torch.bfloat16,
+    )
 
-    optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
+    """  module: nn.Module,
+        process_group: Optional[ProcessGroup] = None,
+        sharding_strategy: Optional[ShardingStrategy] = None,
+        cpu_offload: Optional[CPUOffload] = None,
+        auto_wrap_policy: Optional[Callable] = None,
+        backward_prefetch: Optional[BackwardPrefetch] = None,
+        mixed_precision: Optional[MixedPrecision] = None
+    ):"""
+
+    model = FSDP(
+        model,
+        auto_wrap_policy=bert_wrap_policy,
+        mixed_precision=bfSixteen,
+    ).to(rank)
+
+    if rank == 0:
+        print(f"model via static: {FSDP.fsdp_modules(model, root_only=True)} ")
+
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr)
 
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 
