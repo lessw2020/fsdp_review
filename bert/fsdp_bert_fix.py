@@ -151,7 +151,7 @@ def read_imdb_split(split_dir):
 
 def ddp_main(rank, world_size, args):
 
-    os.environ["TORCH_CPP_SHOW_STACKTRACES"] = str(1)
+    os.environ["TORCH_SHOW_CPP_STACKTRACES"] = str(1)
 
     model_name = "bert-base-uncased"
 
