@@ -151,7 +151,11 @@ def read_imdb_split(split_dir):
 
 def ddp_main(rank, world_size, args):
 
+<<<<<<< HEAD
+    os.environ["TORCH_SHOW_CPP_STACKTRACES"] = str(1)
+=======
     os.environ["TORCH_CPP_SHOW_STACKTRACES"] = str(1)
+>>>>>>> 00cad248f2a8fb6fd0daadd9980b6a7b5d3af635
 
     model_name = "bert-base-uncased"
 
@@ -227,6 +231,8 @@ def ddp_main(rank, world_size, args):
         backward_prefetch: Optional[BackwardPrefetch] = None,
         mixed_precision: Optional[MixedPrecision] = None
     ):"""
+        # Show full C++ stacktraces when a Python error originating from C++ is raised.
+        os.environ["TORCH_SHOW_CPP_STACKTRACES"] = "1"
 
     model = FSDP(
         model,
