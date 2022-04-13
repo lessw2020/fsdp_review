@@ -7,6 +7,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 
+from typing import Type
+
 # removed - DataCollatorForSeq2Seq, Seq2SeqTrainingArguments, Seq2SeqTrainer,
 from transformers import (
     AutoModelForSeq2SeqLM,
@@ -28,12 +30,15 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
     FullyShardedDataParallel as FSDP,
     CPUOffload,
     BackwardPrefetch,
+    MixedPrecision,
 )
 from torch.distributed.fsdp.wrap import (
     default_auto_wrap_policy,
     enable_wrap,
     wrap,
 )
+
+from transformers.models.t5.modeling_t5 import T5Block
 
 # from datasets import load_dataset, load_metric
 from torch.utils.data import DataLoader
@@ -44,9 +49,39 @@ from sklearn.model_selection import train_test_split
 from wikihow_dataset import *
 
 
+def transformer_wrapper(
+    module: nn.Module,
+    recurse: bool,
+    unwrapped_params: int,
+    transformer_layer_cls: Type[nn.Module],
+    min_num_params: int = int(1e8),
+) -> bool:
+
+    """policy for wrapping transformers with shared embedding
+    shared embeddings will be housed in the outermost layer, thus available to all internal
+    fsdp units
+    """
+    is_large = unwrapped_params >= min_num_params
+    if recurse:
+        # always recurse
+        return True
+    else:
+        # if not recursing, decide whether we should wrap for the leaf node or reminder
+        return is_large and isinstance(module, transformer_layer_cls)
+
+
+g_fsdp_unit_params = 200000
+
+fsdp_wrapping_policy = functools.partial(
+    transformer_wrapper,
+    min_num_params=g_fsdp_unit_params,
+    transformer_layer_cls=T5Block,
+)
+
+
 def setup(rank, world_size):
     os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "12356"
+    os.environ["MASTER_PORT"] = "12369"
 
     # initialize the process group
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
@@ -132,12 +167,24 @@ def test(model, rank, world_size, test_loader):
 
 def ddp_main(rank, world_size, args):
 
-    model_name = "t5-base"
+    model_name = "google/t5-v1_1-base"
+    printable_model_name = str.replace(model_name, "/", "==")
+    # t5-base
+    # google/t5-v1_1-small
+
+    #   google/t5-v1_1-base
+
+    #   google/t5-v1_1-large
+
+    #   google/t5-v1_1-xl
+
+    #   google/t5-v1_1-xxl
+
     model = T5ForConditionalGeneration.from_pretrained(model_name)
     if rank == 0:
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-        print(f"\n--> {model_name} has {total_params} params\n")
+        print(f"\n--> {printable_model_name} has {total_params/1e6} Million params\n")
     tokenizer = T5Tokenizer.from_pretrained(model_name)
 
     dataset = load_dataset("wikihow", "all", data_dir="../Fusion/data/wikihow")
@@ -167,10 +214,10 @@ def ddp_main(rank, world_size, args):
     test_loader = torch.utils.data.DataLoader(val_dataset, **test_kwargs)
 
     # t5 wrap policy
-    param_size_wrapping = 800000
-    t5_wrap_policy = functools.partial(
-        default_auto_wrap_policy, min_num_params=param_size_wrapping
-    )
+    # param_size_wrapping = 800000
+    # t5_wrap_policy = functools.partial(
+    #    default_auto_wrap_policy, min_num_params=param_size_wrapping
+    # )
 
     torch.cuda.set_device(rank)
 
@@ -183,19 +230,20 @@ def ddp_main(rank, world_size, args):
     # model = DDP(model)
     model = FSDP(
         model,
-        auto_wrap_policy=t5_wrap_policy,
+        auto_wrap_policy=fsdp_wrapping_policy,
     ).to(rank)
 
     if rank == 0:
         print(f"model ")
-        with open("sharded_model_t5.txt", "a") as external_file:
+        fn = printable_model_name + "-shared_layout.txt"
+        with open(fn, "w") as external_file:
             header_text = (
-                f"model = {model_name}, sharded with {param_size_wrapping} parameters\n"
+                f"model = {model_name}, sharded with {g_fsdp_unit_params} parameters\n"
             )
             print(header_text, file=external_file)
             total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-            print(f"\n--> {model_name} has {total_params} params\n", file=external_file)
+            milli_params = total_params / 1e6
+            print(f"\n--> {model_name} has {milli_params} params\n", file=external_file)
             print(f"model wrapping = \n{model}\n\n", file=external_file)
 
             external_file.close()
