@@ -70,7 +70,7 @@ def transformer_wrapper(
         return is_large and isinstance(module, transformer_layer_cls)
 
 
-g_fsdp_unit_params = 200000
+g_fsdp_unit_params = 1000000
 
 fsdp_wrapping_policy = functools.partial(
     transformer_wrapper,
@@ -184,7 +184,7 @@ def ddp_main(rank, world_size, args):
     if rank == 0:
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-        print(f"\n--> {printable_model_name} has {total_params/1e6} Million params\n")
+        print(f"\n--> {model_name} has {total_params/1e6} Million params\n")
     tokenizer = T5Tokenizer.from_pretrained(model_name)
 
     dataset = load_dataset("wikihow", "all", data_dir="../Fusion/data/wikihow")
@@ -242,7 +242,7 @@ def ddp_main(rank, world_size, args):
             )
             print(header_text, file=external_file)
             total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            milli_params = total_params / 1e6
+            milli_params = total_params * 4 / 1e6
             print(f"\n--> {model_name} has {milli_params} params\n", file=external_file)
             print(f"model wrapping = \n{model}\n\n", file=external_file)
 
